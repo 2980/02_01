@@ -1,15 +1,192 @@
 <!doctype html>
 <html>
 
-    <head>
-        <title>Ichabod</title>
-        <style>
-        </style>
-    </head>
+<head>
+    <title>Ichabod</title>
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <link href='https://fonts.googleapis.com/css?family=Roboto:300,400,500,700|Material+Icons' rel="stylesheet">
 
-    <body>
-        <img src="mountains.png">
+    <style>
+        [v-cloak] {
+            display: none
+        }
 
-    </body>
+        img {
+            box-shadow: 5px 5px 10px gray;
+            margin-top: 5rem;
+        }
+    </style>
+</head>
+
+<body onresize="app.resize(event)">
+    <div id="app" v-cloak>
+        <div class="w3-container w3-blue-gray">
+            <h2>Ichabod:</h2>Connecting Java to JavaScript.
+        </div>
+        <br>
+        <div v-show="!editing">
+            <div class="w3-container" style="text-align: center;">
+                <div v-for="img in baseImages">
+                    <div class="w3-cell-row">
+                        <div class="w3-container"></div>
+                        <div class="w3-container">
+                            <div class="w3-display-container">
+                                <img v-bind:src="img" class="w3-image" @click="edit(img)">
+                                <div style="color:white; margin-top:-2rem; text-shadow: 2px 2px 2px gray;">{{img}}</div>
+                            </div>
+                        </div>
+                        <div class="w3-container"></div>
+                    </div>
+                </div>
+            </div>
+            <br>
+        </div>
+        <div v-show="editing" style="text-align:center" id="editor" style="width:100%">
+            <button @click="doneEditing()">Back</button>
+            <button @click="renderCanvas()">Refresh</button>
+            <button @click="doCommand(command)" v-for="command in baseCommands">{{command}}</button>
+            <br>
+            <canvas style="width:100%" id="canv" onmousedown="app.mousedown(event)" onmousemove="app.mousemove(event)" onmouseup="app.mouseup(event)"
+                onwheel="app.wheel(event)"></canvas>
+        </div>
+
+    </div>
+
+    <script src='https://code.jquery.com/jquery-3.2.1.min.js'></script>
+    <script src='https://code.jquery.com/ui/1.12.1/jquery-ui.js'></script>
+    <script src='https://unpkg.com/vue'></script>
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js'></script>
+
+    <script>
+
+        var app = new Vue({
+            el: '#app',
+            data: {
+                editing: false,
+                currentImage: "",
+                imageData: "",
+                image: {},
+                imageScale: 1,
+                mouseState: false,
+                lastMouse: { x: 0, y: 0 },
+                imageOffset: { x: 0, y: 0 },
+
+                baseImages: [],
+                baseCommands: [],
+            },
+            mounted() {
+                this.getAvailableFiles();
+                this.getAvailableCommands();
+            },
+            methods: {
+                getAvailableFiles() {
+                    $.ajax({ url: "getFileList" }).done(function (result) {
+                        console.log(result);
+                        app.baseImages = result.split("|");
+
+                        _.remove(app.baseImages, i => !i);
+
+
+                    }).fail(function (result1, result2) {
+                        console.log(result1 + "-" + result2);
+                    })
+                },
+                getAvailableCommands() {
+                    $.ajax({ url: "getCommandList" }).done(function (result) {
+                        console.log(result);
+                        app.baseCommands = result.split("|");
+
+                        _.remove(app.baseCommands, i => !i);
+
+
+                    }).fail(function (result1, result2) {
+                        console.log(result1 + "-" + result2);
+                    })
+                },
+                edit(img) {
+                    console.log("editting " + img);
+                    this.editing = true;
+                    this.currentImage = img;
+                    this.imageData = "";
+                    this.image = new Image();
+                    this.image.src = this.currentImage;
+                    this.image.onload = this.renderCanvas();
+                    console.log("done edit");
+                },
+                doneEditing() {
+                    this.editing = false;
+                },
+                renderCanvas() {
+                    console.log("rendering");
+
+                    ///Make sure everything is the right size
+                    canvas = document.getElementById("canv");   ///Get the canvas object
+                    canvas.width = window.innerWidth;
+                    console.log(canvas.width);
+                    canvas.height = window.innerHeight;
+
+                    ///Grab the canvas so we can draw on it
+                    var ctx = canvas.getContext("2d");      ///Get the canvas context
+                    ///Clear the rectangles
+                    ctx.fillStyle = "gray";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.drawImage(this.image, this.imageOffset.x, this.imageOffset.y, this.image.width * this.imageScale, this.image.height * this.imageScale);
+
+                },
+                mousedown(ev) {
+                    this.lastMouse = { x: ev.offsetX, y: ev.offsetY };
+                    this.mouseState = true;
+                },
+                mousemove(ev) {
+
+                    if (this.mouseState) {
+                        let deltaX = this.lastMouse.x - ev.offsetX;
+                        let deltaY = this.lastMouse.y - ev.offsetY;
+
+                        this.imageOffset.x -= deltaX;
+                        this.imageOffset.y -= deltaY;
+
+                        this.lastMouse = { x: ev.offsetX, y: ev.offsetY };
+
+                        this.renderCanvas();
+                    }
+                },
+                mouseup(ev) {
+                    this.mouseState = false;
+                },
+                wheel(ev) {
+                    if (ev.deltaY > 0)
+                        this.imageScale /= 1.1;
+                    else if (ev.deltaY < 0)
+                        this.imageScale *= 1.1;
+                    ev.preventDefault();
+                    this.renderCanvas();
+                    return false;
+                },
+                resize(ev) {
+                    this.renderCanvas();
+                },
+                doCommand(command) {
+                    $.ajax({ url: "process" + "?image=." + this.currentImage + "&command=" + command }).done(function (result) {
+                        console.log(result);
+                        app.edit(result);
+                        _.delay(app.renderCanvas, 100);
+
+
+
+                    }).fail(function (result1, result2) {
+                        console.log(result1 + "-" + result2);
+                    })
+                },
+            }
+        });
+
+
+    </script>
+
+
+
+</body>
 
 </html>

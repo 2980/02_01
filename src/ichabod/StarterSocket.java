@@ -1,28 +1,34 @@
 package ichabod;
 
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.imageio.ImageIO;
 
 public class StarterSocket implements Runnable {
 
-    Socket socket;
+    /** The socket we are attached to */
+    private Socket socket;
+    
+    /** The stream we send information to, i.e., what we send to the browser */
     PrintWriter out;
+    
+    /** The scanner we read from, i.e., what we read from the browser. */
     Scanner in;
+
+    /** A reference to our processor class, which handles the actual image processing. */
+    Processor processor;
 
     /**
      * Create an instance of this object with a reference to the socket we need
@@ -31,6 +37,8 @@ public class StarterSocket implements Runnable {
      */
     public StarterSocket(Socket inSocket) {
         this.socket = inSocket;
+
+        processor = new Processor();
     }
 
     /**
@@ -40,33 +48,43 @@ public class StarterSocket implements Runnable {
     @Override
     public void run() {
         try {
+            //Create the streams
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new Scanner(socket.getInputStream());
 
+            //The browser will send over lots of information. 
+            //We only care about the GET line so we know what it wants
             boolean cont = true;
+            
+            //Loop until we find our line or until the browser is done talking
             while (cont && in.hasNextLine()) {
                 String line = in.nextLine();
 
+                // We only care about lines that start with GET
                 if (line.startsWith("GET ")) {
+                    //Chop up the line into it's parts
                     String[] splits = line.split(" ");
-                    String path = splits[1];
-                    System.out.println("GET request for " + path);
-                    handleRequest(path);
+                    //The second part should be the URL
+                    String url = splits[1];
+                    System.out.println("GET request for " + url);
+                    //Do something with the request
+                    handleRequest(url);
                 } else if (line.equals("")) {
+                    //This means the header is finished, so we are done processing.
                     cont = false;
                 }
             }
-            //handleRequest("/mountains.jpeg");
+
         } catch (IOException ex) {
             ex.printStackTrace();
         } finally {
+            //No matter what, close the stream.
             out.close();
-
+            in.close();
         }
-
         try {
+            //Close the socket
             socket.close();
-            System.out.println("Closed");
         } catch (IOException ex) {
             Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
         }
@@ -75,103 +93,36 @@ public class StarterSocket implements Runnable {
     /**
      * Do something with the path we got from the GET request
      *
-     * @param path The requested path (potentially including variables)
+     * @param url The requested path (potentially including variables)
      */
-    private void handleRequest(String path) {
+    private void handleRequest(String url) {
 
-        //try {
-        path = path.substring(1);
+        
+        url = url.substring(1); //Get rid of the leading /
 
-        if (path.equals("")) {
-            path = "index.html";
+        //Handle the empty path case
+        if (url.equals("")) {
+            url = "index.html";
         }
 
-        if (isFile(path)) {
-            do200(path);
+        //Check to make sure the file exists
+        if (isFile(url)) {
+            handle200(Paths.get(url));
 
         } else {
-            handle404();
-        }
-
-        return;
-
-        /* if(path.equals("index.html"))
+            //If it's not a file we have, check to see if it's a command we understand
+            if (!processCommand(url)) //If not, then it's an error
             {
-                if(isFile(path))
-                {
-                    String file = slurp(path);
-                    handle200(file);
-                }
-                else
-                {
-                    handle404();
-                }
+                handle404();
             }
-            else{
-                if(path.startsWith("edit/"))
-                {
-                    String wikiName = path.substring(5);
-                    String edit = slurp("edit.html");
-
-
-                    String content = "";
-                    if(isFile(wikiName + ".txt")) {
-                        content = slurp(wikiName + ".txt");
-                    }
-                        String replaced = edit.replaceAll("BATMAN", content);
-
-                        replaced = replaced.replace("ROBIN", wikiName);
-
-                        handle200(replaced);
-
-                }
-                else if(path.startsWith("submit/"))
-                {
-                   
-                    path = path.substring(7);
-                    
-                    
-                    ///Write edits variable to file system.
-                    String wikiName = path.substring(0, path.indexOf("?"));
-                    String parameters = path.substring(path.indexOf("?")+1);
-                    String[] keyValue = parameters.split("=");
-                    
-                    String newContents = keyValue[1];
-                    newContents = newContents.replaceAll("\\+", " ");
-                    
-                    Files.write(Paths.get(wikiName + ".txt"), newContents.getBytes());
-                    
-                    handle302("/" + wikiName);
-                }
-                else
-                {
-                    String generic = slurp("generic.html");
-
-                    if(isFile(path + ".txt"))
-                    {
-                        String content = slurp(path + ".txt");
-                        String replaced = generic.replace("BATMAN", content);
-
-                        replaced = replaced.replace("ROBIN", path);
-
-                        handle200(replaced);
-                    }
-                    else
-                    {
-                        handle302("/edit/" + path);
-                    }
-                }
-            }*/
-        //} catch (IOException ex) {
-        //    Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
-        //}
+        }
     }
 
     /**
      * Respond with 404
      */
     private void handle404() {
-        String response = "Bad news, couldn't find that page.";
+        String response = "Bad news, couldn't find that page."; //This could be anything, or even blank.
 
         out.println("HTTP/1.0 404 Not Found");
         out.println("Content-Type: text/html");
@@ -182,172 +133,37 @@ public class StarterSocket implements Runnable {
     }
 
     /**
-     * Respond with a 302 redirect
+     * Respond with a 200 OK and send a file
      *
-     * @param redirect The location we should redirect the browser to
+     * @param path The path to the file we want to send
      */
-    private void handle302(String redirect) {
-        out.println("HTTP/1.0 302 Found");
-        out.println("Location: " + redirect);
-        out.println("");
-    }
+    private void handle200(Path path) {
 
-    /**
-     * Respond with a 501
-     */
-    private void handle501() {
-        out.println("HTTP/1.0 501");
-        out.println("");
-    }
-
-    private void do200(String path) {
-        //try {
-        File file = new File(path);
-
-        if (path.endsWith("html")) {
-            handle200(file, "text/html");
-        } else {
-            handle200(file, "image/png");
-        }
-        //} catch (IOException ex) {
-        //    Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
-        //}
-    }
-
-    /**
-     * Respond with a 200 OK
-     *
-     * @param content The body of the message
-     */
-    private void handle200(File file, String mimeType) {
-
-        FileInputStream fis = null;
-
-        /*out.println("HTTP/1.0 200 OK");
-            out.println("Content-Type: " + mimeType);
-            out.println("Content-Length: " + content.length);
-            
-            out.println();
-            out.println(content);
-            out.println();*/
-        out.print("HTTP/1.0 200 OK\r\n");
-        
-        if (mimeType.startsWith("image")) {
-            out.print("Content-Type: " + mimeType + "\r\n");
-
-            
-
-            try {
-                /*BufferedImage bi = ImageIO.read(file);
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                ImageIO.write(bi, "png", baos);
-                baos.flush();
-                byte[] bytes = baos.toByteArray();
-                baos.close();
-                
-                out.print("Content-Length: " + bytes.length + "\r\n");
-                out.print("\r\n");
-
-                for (int i = 0; i < bytes.length; i++) {
-                    out.write(bytes[i]);
-                    int in = bytes[i] & 0xFF;
-                    System.out.println( Integer.toHexString(in));
-                }
-                out.flush();;
-                out.close();*/
-                
-                 fis = new FileInputStream(file);
-               
-                byte[] bytes = Files.readAllBytes(file.toPath());
-                 out.print("Content-Length: " + bytes.length + "\r\n");
-                out.print("\r\n");
-                 /*for (int i = 0; i < bytes.length; i++) {
-                    out.write(bytes[i]);
-                    int in = bytes[i] & 0xFF;
-                    System.out.println( bytes[i]);
-                }*/
-                 
-               
-                out.flush();
-                socket.getOutputStream().write(bytes,0,bytes.length);
-                
-                
-                out.close();
-
-            } catch (IOException ex) {
-                Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
-            }
-
-        } else {
-            try {
-                //out.println("Content-Length: " + (file.length()));
-                out.print("Content-Type: " + mimeType + ";charset=utf-8\r\n");
-
-                out.print("\r\n");
-                fis = new FileInputStream(file);
-                int oneByte;
-                while ((oneByte = fis.read()) != -1) {
-                    out.write(oneByte);
-                    System.out.print((char) oneByte); // could also do this
-                }
-                out.flush();
-                Thread.sleep(100);
-                out.close();
-                System.out.println("Done");
-            } catch (FileNotFoundException ex) {
-                Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
-            } catch (IOException ex) {
-                Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
-            } catch (InterruptedException ex) {
-                Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
-            } finally {
-                try {
-                    fis.close();
-                } catch (IOException ex) {
-                    Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
-                }
-            }
-        }
-
-        System.out.println("Returning");
-    }
-
-    /**
-     * Read an entire file into a string
-     *
-     * @param f The file to read
-     * @return The contents of the file as a string
-     * @throws IOException
-     */
-    private byte[] slurp(File f) throws IOException {
-
-        try (
-                InputStream inputStream = new FileInputStream(f);) {
-
-            long fileSize = f.length();
-
-            byte[] allBytes = new byte[(int) fileSize];
-
-            inputStream.read(allBytes);
-
-            return allBytes;
-
+        try {
+            out.print("HTTP/1.0 200 OK\r\n");
+            byte[] bytes = Files.readAllBytes(path);
+            out.print("Content-Length: " + bytes.length + "\r\n");
+            out.print("\r\n");
+            out.flush();
+            socket.getOutputStream().write(bytes, 0, bytes.length);
         } catch (IOException ex) {
-            ex.printStackTrace();
+            Logger.getLogger(StarterSocket.class.getName()).log(Level.SEVERE, null, ex);
         }
-
-        return new byte[0];
     }
 
     /**
-     * Read the entire contents on a file into a string
-     *
-     * @param f The name of the file
-     * @return The contents of the file as a string
-     * @throws IOException
+     * Respond with 200 OK and send a string
+     * @param string The string to send
      */
-    private byte[] slurp(String f) throws IOException {
-        return slurp(new File(f));
+    private void handle200(String string) {
+
+        out.print("HTTP/1.0 200 OK\r\n");
+
+        out.print("Content-Length: " + string.length() + "\r\n");
+        out.print("\r\n");
+        out.flush();
+        out.println(string);
+
     }
 
     /**
@@ -355,10 +171,126 @@ public class StarterSocket implements Runnable {
      *
      * @param path The name of the file
      * @return true if it is a file, false if the file doesn't exist or the path
-     * is a directory
+     * is a directory. Also false if it is similar to a command so that files don't mask commands.
      */
     private boolean isFile(String path) {
+
+        if (path.startsWith("process") || path.startsWith("getFileList") || path.startsWith("getCommandList")) {
+            return false; //That's a command, so we ignore it. This prevents a file that starts with process from crashing everything.
+        }
         File f = new File(path);
         return f.exists() && !f.isDirectory();
     }
+
+    /**
+     * Do something if we get a command
+     * 
+     * @param command The command to process
+     * @return True if we successfully processed the command, false otherwise
+     */
+    private boolean processCommand(String command) {
+        
+        //Return the list of images we can serve
+        if (command.startsWith("getFileList")) {
+
+            List<String> fileNames = new ArrayList<>();
+            try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(Paths.get("."))) {
+                for (Path path : directoryStream) {
+                    if (isImagePath(path)) {
+                        //Ignore temp files
+                        if (!path.toString().contains("0.")) {
+                            fileNames.add(path.toString().substring(1));
+                        }
+                    }
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+
+            //Put the list into one string separated by |
+            String list = fileNames.stream().reduce("", (a, b) -> a + "|" + b);
+            handle200(list);
+
+            return true; //We dealt with it, so we're happy.
+        } else if(command.startsWith("getCommandList")){
+            //Get a list of commands the user can issue by querying the processor
+            String list = Arrays.stream(processor.validCommands()).reduce("", (a,b)->a + "|" + b);
+            handle200(list);
+        }         
+        else if (command.startsWith("process")) {
+            //Actually run a command on an image
+            
+            //Split on ?
+            String[] arguments = command.split("\\?");
+            if (arguments.length != 2) {
+                return false;
+            }
+
+            String allArguments = arguments[1];
+
+            //Split on &
+            String[] pairs = allArguments.split("&");
+
+            HashMap<String, String> keyValuePairs = new HashMap<String, String>();
+
+            for (String pair : pairs) {
+                String[] keyValue = pair.split("=");
+                if (keyValue.length != 2) {
+                    return false;
+                }
+                keyValuePairs.put(keyValue[0], keyValue[1]);
+            }
+
+            //Make sure we have a command
+            if (!keyValuePairs.containsKey("command")) {
+                return false;
+            }
+
+            //Make sure we have an image
+            if (!keyValuePairs.containsKey("image")) {
+                return false;
+            }
+
+            
+            String commandName = keyValuePairs.get("command");
+            String imageName = keyValuePairs.get("image");
+
+            //Make sure the image exists
+            if (!isFile(imageName)) {
+                return false;
+            }
+            
+            //Process the command
+            String result = processor.Process(commandName, imageName, keyValuePairs);
+
+            //Make sure the command succeeded
+            if (result == null) {
+                return false;
+            }
+            
+            //Return to the user the name of the new temp image.
+            handle200(result);
+
+        }
+        //check for other commands
+        return false; //We didn't catch the command, so return false so we know to send a 404
+    }
+
+    //List of image types we support. Any other file extensions will not be served by our system as images.
+    private String[] imageExtensions = new String[]{".jpeg", ".jpg", ".gif", ".bmp", ".png"};
+
+    /**
+     * Determines if the path belongs to a file with an image file extension
+     * @param path The path to check
+     * @return True if it has an image fie extension, false otherwise
+     */
+    private boolean isImagePath(Path path) {
+        for (String extension : imageExtensions) {
+            if (path.toString().endsWith(extension)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }
