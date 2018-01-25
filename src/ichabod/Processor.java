@@ -134,14 +134,50 @@ public class Processor {
         int width = bi.getWidth();
         int height = bi.getHeight();
         
+        //An array to store the error for each pixel so it can accumulate
+        int[][] error = new int[width][height];
+        
         
         for (int y = 0; y < height; y++) {
+            
+            
+            
             for (int x = 0; x < width; x++) {
                 Color pixel = new Color(bi.getRGB(x, y));
                 
                 int r = pixel.getRed();
                 int g = pixel.getGreen();
                 int b = pixel.getBlue();
+                
+                int grayscale = r + error[x][y]; 
+                
+                int newgrayscale = 0;
+                                
+                if(grayscale > 128 )
+                    newgrayscale = 255;
+                else
+                    newgrayscale = 0;
+                
+                int totalerror = grayscale - newgrayscale;
+                
+                tryadd(error, totalerror/2, width, height, x+1, y);
+                tryadd(error, 3*totalerror/16, width, height, x+1, y+1);
+                tryadd(error, totalerror/4, width, height, x, y+1);
+                tryadd(error, totalerror/16, width, height, x-1, y+1);
+                
+                /**
+                 * if grayscale was 128, newgrayscale would be 0
+                 * So error would be 128. So a positive error means the next pixel should be...
+                 */
+                
+                
+                
+                
+                
+                r = newgrayscale;
+                g = newgrayscale;
+                b = newgrayscale;
+                
                 
                 
                 
