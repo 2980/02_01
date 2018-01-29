@@ -12,8 +12,20 @@
         }
 
         img {
-            box-shadow: 5px 5px 10px gray;
             margin-top: 5rem;
+
+        }
+
+        body {
+            background-color: lightgray;
+        }
+
+        .mainImage {
+            object-fit: cover;
+            object-position: center;
+            height: 15rem;
+            width: 15rem;
+            margin-top: 0px;
         }
     </style>
 </head>
@@ -24,21 +36,13 @@
             <h2>Ichabod:</h2>Connecting Java to JavaScript.
         </div>
         <br>
-        <div v-show="!editing">
-            <div class="w3-container" style="text-align: center;">
-                <div v-for="img in baseImages">
-                    <div class="w3-cell-row">
-                        <div class="w3-container"></div>
-                        <div class="w3-container">
-                            <div class="w3-display-container">
-                                <img v-bind:src="img" class="w3-image" @click="edit(img)">
-                                <div style="color:white; margin-top:-2rem; text-shadow: 2px 2px 2px gray;">{{img}}</div>
-                            </div>
-                        </div>
-                        <div class="w3-container"></div>
-                    </div>
+        <div v-show="!editing" >
+            <div style="text-align:center">&nbsp;
+                <div v-for="img in baseImages" style="display:inline-block;">
+                    <img v-bind:src="img" class="w3-image mainImage" @click="edit(img)">
                 </div>
             </div>
+
             <br>
         </div>
         <div v-show="editing" style="text-align:center" id="editor" style="width:100%">
@@ -72,7 +76,7 @@
                 imageOffset: { x: 0, y: 0 },
 
                 baseImages: [],
-                baseCommands: [],
+                baseCommands: []
             },
             mounted() {
                 this.getAvailableFiles();
