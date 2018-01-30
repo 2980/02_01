@@ -1,11 +1,14 @@
-
 package ichabod;
 
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.imageio.ImageIO;
@@ -18,10 +21,12 @@ public class Processor {
 
     /**
      * Process a command
+     *
      * @param command The command to process
      * @param file The file to process the command on
      * @param arguments A hashmap of the arguments passed with the command
-     * @return The filename of the resulting temp image on success, null otherwise
+     * @return The filename of the resulting temp image on success, null
+     * otherwise
      */
     public String Process(String command, String file, HashMap<String, String> arguments) {
         //Generate a new temp file name
@@ -39,13 +44,14 @@ public class Processor {
             //Choose the right method
             if (command.equals("grayscale")) {
                 grayscale(bi, out);
-            }
-            else if(command.equals("monochrome")){
+            } else if (command.equals("monochrome")) {
                 monochrome(bi, out);
-            }
-            else
+            } else if (command.equals("reduceColor")) {
+                reduceColor(bi, out);
+            } else {
                 return null;
-            
+            }
+
             //Write the image
             ImageIO.write(out, "png", new File(filename));
             return "\\" + filename;
@@ -57,6 +63,7 @@ public class Processor {
 
     /**
      * Turn a color image into grayscale
+     *
      * @param bi The original image
      * @param out The modified image
      */
@@ -64,39 +71,40 @@ public class Processor {
         for (int y = 0; y < bi.getHeight(); y++) {
             for (int x = 0; x < bi.getWidth(); x++) {
                 Color pixel = new Color(bi.getRGB(x, y));
-                
+
                 int r = pixel.getRed();
                 int g = pixel.getGreen();
                 int b = pixel.getBlue();
-                
+
                 //Set to grayscale
                 r = g;
                 b = g;
-                
+
                 //Prevent an exception by keeping values within [0,255]
                 r = clamp255(r);
                 g = clamp255(g);
                 b = clamp255(b);
-                
-                
+
                 Color newColor = new Color(r, g, b);
-                
+
                 out.setRGB(x, y, newColor.getRGB());
-                
+
             }
         }
     }
 
     /**
      * The list of commands we accept
+     *
      * @return The list of commands we accept
      */
     public String[] validCommands() {
-        return new String[]{"grayscale", "monochrome"};
+        return new String[]{"grayscale", "monochrome", "reduceColor"};
     }
 
     /**
      * Keep an int value within 0 and 255
+     *
      * @param i The value to clamp
      * @return a number between 0 and 255 inclusively
      */
@@ -112,6 +120,7 @@ public class Processor {
 
     /**
      * Keep an float between 0 and 1
+     *
      * @param f The float to clamp
      * @return a float between 0 and 1 inclusively
      */
@@ -127,29 +136,157 @@ public class Processor {
 
     /**
      * Convert an image to monochrome.
+     *
      * @param bi The original image
      * @param out The modified image
      */
     private void monochrome(BufferedImage bi, BufferedImage out) {
         int width = bi.getWidth();
         int height = bi.getHeight();
-        
+
         //An array to store the error for each pixel so it can accumulate
         int[][] error = new int[width][height];
-        
-        
+
         for (int y = 0; y < height; y++) {
-            
-            
-            
+
             for (int x = 0; x < width; x++) {
                 Color pixel = new Color(bi.getRGB(x, y));
-                
+
                 int r = pixel.getRed();
                 int g = pixel.getGreen();
                 int b = pixel.getBlue();
-                
-                int grayscale = r + error[x][y]; 
+
+                int grayscale = r + error[x][y];
+
+                int newgrayscale = 0;
+
+                if (grayscale > 128) {
+                    newgrayscale = 255;
+                } else {
+                    newgrayscale = 0;
+                }
+
+                int totalerror = grayscale - newgrayscale;
+
+                tryadd(error, totalerror / 2, width, height, x + 1, y);
+                tryadd(error, 3 * totalerror / 16, width, height, x + 1, y + 1);
+                tryadd(error, totalerror / 4, width, height, x, y + 1);
+                tryadd(error, totalerror / 16, width, height, x - 1, y + 1);
+
+                /**
+                 * if grayscale was 128, newgrayscale would be 0 So error would
+                 * be 128. So a positive error means the next pixel should be...
+                 */
+                r = newgrayscale;
+                g = newgrayscale;
+                b = newgrayscale;
+
+                //Prevent an exception by keeping values within [0,255]
+                r = clamp255(r);
+                g = clamp255(g);
+                b = clamp255(b);
+
+                Color newColor = new Color(r, g, b);
+
+                out.setRGB(x, y, newColor.getRGB());
+
+            }
+        }
+    }
+
+    private void reduceColor(BufferedImage bi, BufferedImage out) {
+
+        int width = bi.getWidth();
+        int height = bi.getHeight();
+
+        int maxColors = 8;
+
+        HashMap<Color, Integer> hashMap = new HashMap<>();
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                Color pixel = new Color(bi.getRGB(x, y));
+
+                if(hashMap.containsKey(pixel))
+                {
+                    hashMap.put(pixel, hashMap.get(pixel).intValue() + 1);
+                }
+                else
+                {
+                    hashMap.put(pixel, 1);
+                }
+            }
+        }
+        
+        List<ColorIntPair> pairs = new ArrayList<ColorIntPair>();
+        
+        Collection<Color> keys = hashMap.keySet();
+        
+        for(Color color : keys)
+        {
+            int value = hashMap.get(color);
+            
+            ColorIntPair cip = new ColorIntPair();
+            cip.color = color;
+            cip.count = value;
+            pairs.add(cip);
+        }
+        
+         Collections.sort(pairs);
+         Collections.reverse(pairs);
+         
+         List<Color> possibleColors = new ArrayList<Color>();
+         
+         for(int i = 0; i < maxColors && i < pairs.size(); i++)
+         {
+             possibleColors.add(pairs.get(i).color);
+         }
+
+        /*Color[] possibleColors = new Color[]{
+            Color.BLUE,
+            Color.GREEN,
+            Color.MAGENTA,
+            Color.YELLOW,
+            Color.ORANGE,
+            Color.PINK,
+            Color.WHITE,
+            Color.BLACK,
+            Color.GRAY
+        };*/
+
+        //An array to store the error for each pixel so it can accumulate
+        int[][] error = new int[width][height];
+
+        for (int y = 0; y < height; y++) {
+
+            for (int x = 0; x < width; x++) {
+                Color pixel = new Color(bi.getRGB(x, y));
+
+                int r = pixel.getRed();
+                int g = pixel.getGreen();
+                int b = pixel.getBlue();
+
+                Color closestColor = null;
+                float closestDistance = Float.MAX_VALUE;
+
+                /*for(int i = 0; i < possibleColors.length; i++)
+                {
+                    Color color = possibleColors[i];
+                }*/
+                //foreach
+                for (Color color : possibleColors) {
+                    float distance = getDistanceL1(new Color(r, g, b), color);
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closestColor = color;
+                    }
+                }
+
+                r = closestColor.getRed();
+                g = closestColor.getGreen();
+                b = closestColor.getBlue();
+
+                /*int grayscale = r + error[x][y]; 
                 
                 int newgrayscale = 0;
                                 
@@ -165,10 +302,7 @@ public class Processor {
                 tryadd(error, totalerror/4, width, height, x, y+1);
                 tryadd(error, totalerror/16, width, height, x-1, y+1);
                 
-                /**
-                 * if grayscale was 128, newgrayscale would be 0
-                 * So error would be 128. So a positive error means the next pixel should be...
-                 */
+               
                 
                 
                 
@@ -176,27 +310,23 @@ public class Processor {
                 
                 r = newgrayscale;
                 g = newgrayscale;
-                b = newgrayscale;
-                
-                
-                
-                
+                b = newgrayscale;*/
                 //Prevent an exception by keeping values within [0,255]
                 r = clamp255(r);
                 g = clamp255(g);
                 b = clamp255(b);
-                
-                
+
                 Color newColor = new Color(r, g, b);
-                
+
                 out.setRGB(x, y, newColor.getRGB());
-                
+
             }
         }
     }
 
     /**
      * Try to add a value to an array if the x and y values are valid
+     *
      * @param error The array to add to
      * @param remainingError The value to add
      * @param width The length of the first dimension
@@ -206,15 +336,24 @@ public class Processor {
      * @return True of a value was update, false otherwise
      */
     private boolean tryadd(int[][] error, int remainingError, int width, int height, int x, int y) {
-        if( x < 0 || x >= width) return false;
-        if( y < 0 || y >= height) return false;
-        
+        if (x < 0 || x >= width) {
+            return false;
+        }
+        if (y < 0 || y >= height) {
+            return false;
+        }
+
         error[x][y] += remainingError;
-        
-        
+
         return true;
-        
-        
+
+    }
+
+    private float getDistanceL1(Color color, Color color0) {
+        return Math.abs(color.getRed() - color0.getRed())
+                + Math.abs(color.getGreen() - color0.getGreen())
+                + Math.abs(color.getBlue() - color0.getBlue());
+
     }
 
 }
